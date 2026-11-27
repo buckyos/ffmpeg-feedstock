@@ -1,0 +1,214 @@
+# BuckyOS fork of conda-forge/ffmpeg-feedstock (see README.buckyos.md).
+#
+# Builds the one variant BuckyOS ext-core uses (gpl, no nvcodec) on the five
+# ext-core platforms with conda-forge's own .scripts/ and .ci_support/ files,
+# so a build here is a conda-forge build of this recipe. Nothing is uploaded to
+# anaconda.org: UPLOAD_PACKAGES is False. A tag `buckyos-<version>-<build>`
+# publishes the packages as a GitHub Release (with the upstream source archives
+# and SHA256SUMS) and rebuilds the conda channel on GitHub Pages from all releases.
+#
+# Upstream's generated .github/workflows/conda-build.yml stays in the tree (rebases
+# stay clean) but is disabled in this repository: gh workflow disable conda-build.yml
+name: BuckyOS packages
+
+on:
+  push:
+    branches: [buckyos]
+    tags: ['buckyos-*']
+  pull_request:
+    branches: [buckyos]
+  workflow_dispatch:
+    inputs:
+      channel_only:
+        description: Only rebuild the Pages channel from the existing releases
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: ${{ matrix.subdir }}
+    if: ${{ !inputs.channel_only }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - subdir: linux-64
+            os: ubuntu
+            runs_on: ubuntu-latest
+            CONFIG: linux_64_build_number_increment0ffnvcodec_headersNonelicense_familygpl
+          - subdir: linux-aarch64
+            os: ubuntu
+            runs_on: ubuntu-24.04-arm
+            CONFIG: linux_aarch64_build_number_increment0ffnvcodec_headersNonelicense_familygpl
+          - subdir: osx-64
+            os: macos
+            runs_on: macos-15-intel
+            CONFIG: osx_64_license_familygpl
+          - subdir: osx-arm64
+            os: macos
+            runs_on: macos-15
+            CONFIG: osx_arm64_license_familygpl
+          - subdir: win-64
+            os: windows
+            runs_on: windows-2022
+            CONFIG: win_64_build_number_increment0ffnvcodec_headersNonelicense_familygpl
+    env:
+      CI: github_actions
+      CONFIG: ${{ matrix.CONFIG }}
+      UPLOAD_PACKAGES: 'False'
+      RATTLER_BUILD_COLOR: always
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the variant is still rendered
+        shell: bash
+        run: |
+          # A rebase onto an upstream re-render can rename .ci_support files.
+          test -f ".ci_support/${CONFIG}.yaml" || { ls .ci_support; echo "::error::.ci_support/${CONFIG}.yaml is gone; update the matrix"; exit 1; }
+
+      - name: Build on Linux
+        if: matrix.os == 'ubuntu'
+        shell: bash
+        env:
+          CONDA_BLD_PATH: build_artifacts
+          MINIFORGE_HOME: ~/miniforge3
+        run: |
+          export MINIFORGE_HOME="${MINIFORGE_HOME/#~/${HOME}}"
+          # validate_recipe_outputs checks the outputs against conda-forge's registry,
+          # where ffmpeg belongs to ffmpeg-feedstock.
+          export FEEDSTOCK_NAME=ffmpeg-feedstock
+          export GIT_BRANCH="${GITHUB_REF_NAME}"
+          export IS_PR_BUILD=$([[ "${GITHUB_EVENT_NAME}" == pull_request ]] && echo True || echo False)
+          export flow_run_id="github_${GITHUB_RUN_ID}" remote_url="https://github.com/${GITHUB_REPOSITORY}" sha="${GITHUB_SHA}"
+          ./.scripts/run_docker_build.sh
+          echo "PKG_DIR=${GITHUB_WORKSPACE}/build_artifacts/${{ matrix.subdir }}" >> "$GITHUB_ENV"
+
+      - name: Build on macOS
+        if: matrix.os == 'macos'
+        shell: bash
+        env:
+          MINIFORGE_HOME: ~/miniforge3
+        run: |
+          export MINIFORGE_HOME="${MINIFORGE_HOME/#~/${HOME}}"
+          export CONDA_BLD_PATH="${GITHUB_WORKSPACE}/build_artifacts"
+          export FEEDSTOCK_NAME=ffmpeg-feedstock
+          export GIT_BRANCH="${GITHUB_REF_NAME}"
+          export IS_PR_BUILD=$([[ "${GITHUB_EVENT_NAME}" == pull_request ]] && echo True || echo False)
+          export flow_run_id="github_${GITHUB_RUN_ID}" remote_url="https://github.com/${GITHUB_REPOSITORY}" sha="${GITHUB_SHA}"
+          ./.scripts/run_osx_build.sh
+          echo "PKG_DIR=${CONDA_BLD_PATH}/${{ matrix.subdir }}" >> "$GITHUB_ENV"
+
+      - name: Build on Windows
+        if: matrix.os == 'windows'
+        shell: cmd
+        env:
+          BUILD_PLATFORM: win-64
+          CONDA_BLD_PATH: D:\bld\
+          MINIFORGE_HOME: D:\Miniforge
+          PYTHONUNBUFFERED: 1
+        run: |
+          :: run_win_build.bat takes FEEDSTOCK_NAME from the repository name, which
+          :: therefore has to be ffmpeg-feedstock (see README.buckyos.md).
+          set "flow_run_id=github_%GITHUB_RUN_ID%"
+          set "remote_url=https://github.com/%GITHUB_REPOSITORY%"
+          set "sha=%GITHUB_SHA%"
+          call ".scripts\run_win_build.bat"
+          if errorlevel 1 exit /b 1
+          echo PKG_DIR=D:\bld\win-64>> "%GITHUB_ENV%"
+
+      - name: Check the package has zscale
+        shell: bash
+        run: |
+          # The recipe's own tests already ran ffmpeg -filters; this only guards
+          # against a rebase that silently dropped the zimg commit.
+          ls -la "${PKG_DIR}"
+          n=$(ls "${PKG_DIR}"/ffmpeg-*_zimg_h*.conda | wc -l)
+          test "$n" -eq 1 || { echo "::error::expected one ffmpeg-*_zimg_h*.conda in ${PKG_DIR}, found $n"; exit 1; }
+
+      - name: Store the package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pkg-${{ matrix.subdir }}
+          path: ${{ env.PKG_DIR }}/ffmpeg-*.conda
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/buckyos-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Fetch the packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: pkg-*
+          path: dist
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/pkg-*/*.conda
+
+      - name: Assemble assets and corresponding source
+        shell: bash
+        run: |
+          python3 -m pip install --disable-pip-version-check -q zstandard==0.25.0 pyyaml==6.0.3
+          python3 .buckyos/release_assets.py dist assets
+
+      - name: Create the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" assets/* \
+            --title "${GITHUB_REF_NAME}" --notes-file assets-notes.md --verify-tag
+
+  channel:
+    name: Pages channel
+    needs: [release]
+    # After a release, or by hand (workflow_dispatch with channel_only) to rebuild it.
+    if: ${{ always() && (needs.release.result == 'success' || inputs.channel_only) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Rebuild the channel from all releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./.buckyos/build_channel.sh channel
+
+      - name: Upload the channel
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: channel
+
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

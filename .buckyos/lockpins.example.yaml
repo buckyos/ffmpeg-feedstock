@@ -1,0 +1,10 @@
+# Example: host versions pinned to BuckyOS ext-core's conda-lock.yml (win-64, 2026-11,
+# ffmpeg 9.0.2), so a rebuilt package's run_exports stay satisfiable by that lock.
+fontconfig:
+  - 2.18.3
+harfbuzz:
+  - 15.0.0
+expat:
+  - 2.9.0
+dav1d_devel:
+  - 1.5.4
