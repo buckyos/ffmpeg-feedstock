@@ -76,8 +76,9 @@ One-time repository setup:
 
 ## Releases and the channel
 
-A tag `buckyos-<version>-<build number>` (for example `buckyos-9.1.0-100`; the gpl
-build number is the recipe's `build` + 100) builds the packages and publishes a
+A tag `buckyos-<version>-<build number>` (for example `buckyos-9.1.0-101`; the gpl
+build number is the recipe's `build` + `build_number_increment` from the pins + 100)
+builds the packages and publishes a
 **GitHub Release** with:
 
 - `<subdir>__<file>.conda`: the five packages, each with a GitHub artifact attestation
@@ -118,14 +119,36 @@ The releases are the archive. **Do not delete a release while an ext-core
 4. Afterwards, nfs_server's comment that ext-core's ffmpeg has no zscale
    (`src/frame/nfs_server/src/preview/tools.rs`, `search_dirs`) no longer holds.
 
-CI builds against the conda-forge pinning of upstream's last re-render. Relock ext-core
-soon after a release, so the lock and the build agree on the dependency versions.
+## Building against ext-core's lock
 
-To rebuild a version *into an existing lock* without relocking, pin the host
-dependencies to the lock's versions with an extra variant file. Otherwise the build's
-run_exports can require versions newer than the lock holds.
-`.buckyos/lockpins.example.yaml` is the one used for ext-core's win-64 lock in
-November 2026:
+The packages are built against the dependency versions in **ext-core's lock**, not
+against conda-forge's newest pinning. Built with the newest pinning, ffmpeg can need
+libraries that the rest of ext-core's environment (ImageMagick, graphviz, …) has not
+moved to yet. ffmpeg 9.1.0 build 100 needed libjxl 0.13 and icu 79 while ImageMagick
+still needed libjxl 0.12, and with this channel taking priority, ext-core's lock had
+no solution.
+
+- `.buckyos/pins/<subdir>.json` holds the versions of ffmpeg's host dependencies in
+  ext-core's lock, written by `.buckyos/pins_from_lock.py`.
+- CI applies them to the variant file before building
+  (`.buckyos/apply_pins.py`; only the CI checkout is changed).
+- Keys whose package is not in that platform's lock keep the recipe's pin. The script
+  lists those keys.
+
+Order of work when ext-core relocks:
+
+1. Lock ext-core's environment with conda-forge alone. Leave this channel out of
+   `conda-env.yml`, so the lock is conda-forge of the day.
+2. Write the pins from that lock. Raise the build number, so the new build is
+   preferred over earlier ones of the same version, then commit, tag and release:
+   `python .buckyos/pins_from_lock.py <ext-core>/publish/exttool/ext-core/conda-lock.yml --build-number-increment <n>`
+3. Put this channel back into `conda-env.yml` and lock again from scratch: move the
+   old `conda-lock.yml` aside first, because conda-lock refuses to update a lock
+   whose channels changed. Every platform's ffmpeg should now be this channel's new
+   build, and the rest of the lock should match step 1, plus zimg.
+
+`.buckyos/lockpins.example.yaml` is the hand-made version of the same idea for one local
+win-64 build:
 `conda build recipe -m .ci_support/<config>.yaml -m .buckyos/lockpins.example.yaml`.
 
 ## Building locally on Windows

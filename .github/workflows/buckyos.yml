@@ -76,6 +76,14 @@ jobs:
           # A rebase onto an upstream re-render can rename .ci_support files.
           test -f ".ci_support/${CONFIG}.yaml" || { ls .ci_support; echo "::error::.ci_support/${CONFIG}.yaml is gone; update the matrix"; exit 1; }
 
+      - name: Pin host dependencies to ext-core's lock
+        shell: bash
+        run: |
+          # .buckyos/pins/<subdir>.json comes from ext-core's conda-lock.yml
+          # (pins_from_lock.py); the variant file is changed in this checkout only.
+          PY=$(command -v python || command -v python3)
+          "$PY" .buckyos/apply_pins.py ".ci_support/${CONFIG}.yaml" ".buckyos/pins/${{ matrix.subdir }}.json"
+
       - name: Build on Linux
         if: matrix.os == 'ubuntu'
         shell: bash
