@@ -43,7 +43,9 @@ source:
 
 build:
   number: {{ build }}
-  string: {{ license_family }}_h{{ PKG_HASH }}_{{ PKG_BUILDNUM }}
+  # BuckyOS fork: mark the build string, so a package from this fork never shares
+  # a file name with conda-forge's build of the same version (the hash can match).
+  string: {{ license_family }}_zimg_h{{ PKG_HASH }}_{{ PKG_BUILDNUM }}
   run_exports:
   # seems to be major version compatibility
   # https://abi-laboratory.pro/tracker/timeline/ffmpeg/
