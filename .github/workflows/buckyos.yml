@@ -119,12 +119,13 @@ jobs:
         run: |
           :: run_win_build.bat takes FEEDSTOCK_NAME from the repository name, which
           :: therefore has to be ffmpeg-feedstock (see README.buckyos.md).
+          :: It ends with a bare `exit`, which closes this cmd: nothing after the
+          :: call runs, so PKG_DIR is written first.
+          echo PKG_DIR=D:\bld\win-64>> "%GITHUB_ENV%"
           set "flow_run_id=github_%GITHUB_RUN_ID%"
           set "remote_url=https://github.com/%GITHUB_REPOSITORY%"
           set "sha=%GITHUB_SHA%"
           call ".scripts\run_win_build.bat"
-          if errorlevel 1 exit /b 1
-          echo PKG_DIR=D:\bld\win-64>> "%GITHUB_ENV%"
 
       - name: Check the package has zscale
         shell: bash
