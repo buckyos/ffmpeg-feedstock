@@ -96,6 +96,27 @@ if [[ "${target_platform}" == "win-64" ]]; then
 
   # Add pkgconfig from the prefix to search through it correctly
   export PKG_CONFIG_PATH=${PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}
+
+  # conda-forge's win-64 zimg is built with MSBuild and ships no
+  # zimg.pc, but configure finds libzimg through pkg-config. Describe the
+  # installed zimg.lib / zimg.h for this build only; removed after make install.
+  if [[ ! -f "${PREFIX}/lib/pkgconfig/zimg.pc" ]]; then
+    ZIMG_PC_CREATED=1
+    zimg_version=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "${PREFIX}"/../conda-meta/zimg-*.json "${PREFIX}"/conda-meta/zimg-*.json 2>/dev/null | head -1)
+    mkdir -p "${PREFIX}/lib/pkgconfig"
+    {
+      echo "prefix=${PREFIX}"
+      echo 'libdir=${prefix}/lib'
+      echo 'includedir=${prefix}/include'
+      echo
+      echo 'Name: zimg'
+      echo 'Description: Scaling, colorspace conversion, and dithering library'
+      echo "Version: ${zimg_version:-3.0.6}"
+      echo 'Libs: -L${libdir} -lzimg'
+      echo 'Cflags: -I${includedir}'
+    } > "${PREFIX}/lib/pkgconfig/zimg.pc"
+    cat "${PREFIX}/lib/pkgconfig/zimg.pc"
+  fi
   PKG_CONFIG="${BUILD_PREFIX}/Library/bin/pkg-config"
   # I'm not sure, but it seems like
   # their hacky way of silencing things is messing with the AR command
@@ -196,6 +217,7 @@ fi
         --enable-libopus \
         --enable-librsvg \
         --enable-libjxl \
+        --enable-libzimg \
         --enable-libwebp \
         --enable-ffplay \
         --enable-vulkan \
@@ -224,6 +246,9 @@ make install
 if [[ "${target_platform}" == win-* ]]; then
   if [[ "${UNISTD_CREATED}" == "1" ]]; then
       rm -f "${PREFIX}/include/unistd.h"
+  fi
+  if [[ "${ZIMG_PC_CREATED}" == "1" ]]; then
+      rm -f "${PREFIX}/lib/pkgconfig/zimg.pc"
   fi
   if [[ "${LIBX264_LIB_CREATED}" == "1" ]]; then
     rm -f ${PREFIX}/lib/libx264.lib

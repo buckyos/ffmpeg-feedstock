@@ -116,6 +116,7 @@ requirements:
     - libplacebo  # [not win and not ppc64le]
     - libjxl
     - libwebp
+    - zimg
   run_constrained:
     - __cuda  >={{ cuda_version_for_ffnvcodec }}  # [ffnvcodec_headers != "None"]
 
@@ -226,6 +227,8 @@ test:
     - ffmpeg -hide_banner -filters | {{ grep }} "libplacebo"  # [not win and not ppc64le]
     # Test for Vulkan filters - verify they are actually available
     - ffmpeg -hide_banner -filters | {{ grep }} "vulkan"
+    - ffmpeg -hide_banner -filters | {{ grep }} "zscale"
+    - ffmpeg -hide_banner -buildconf | {{ grep }} "enable-libzimg"
 
 about:
   home: https://www.ffmpeg.org/
