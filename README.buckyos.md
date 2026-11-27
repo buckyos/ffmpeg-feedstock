@@ -138,12 +138,18 @@ set UPLOAD_PACKAGES=False
 set CI=github_actions
 set GITHUB_REPOSITORY=local/ffmpeg-feedstock
 set CONDA_BLD_PATH=D:\bld\
-set MINIFORGE_HOME=D:\Miniforge
+set MINIFORGE_HOME=D:\m
+set RUNNER_TEMP=%TEMP%
 call .scripts\run_win_build.bat
 ```
 
-It needs Visual Studio 2022 Build Tools (MSVC 14.4x). Two things break conda-build on
-a desktop machine:
+It needs Visual Studio 2022 Build Tools (MSVC 14.4x). Three things break it on a desktop
+machine:
+
+- **Windows long paths are off** (`LongPathsEnabled=0`; GitHub's runners have them
+  on). micromamba fails to provision the CI tools: a package-cache path in
+  `rattler-build-conda-compat` is about 255 characters plus the length of
+  `MINIFORGE_HOME`. Use a very short `MINIFORGE_HOME`, such as `D:\m`.
 
 - **`NoDefaultCurrentDirectoryInExePath`.** If it is set, `cmd` cannot run
   conda-build's own `conda_build.bat` from the work directory. Unset it.
